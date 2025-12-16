@@ -25,19 +25,32 @@ export default function PerfilAdmin() {
   const [foto, setFoto] = useState<string | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
   const [actividades, setActividades] = useState<any[]>([]);
+
+  /* ================== CARGA INICIAL ================== */
+  useEffect(() => {
+    const data = localStorage.getItem("admin");
+    if (!data) return;
+
+    const user = JSON.parse(data);
+
+    setUserId(user.idUsuario);
+    setAdmin({
+      nombre: user.nombre,
+      apellido: user.apellido,
+      correo: user.user,
+      rol: user.rol,
+      ultimoAcceso: new Date().toLocaleString("es-PE", { hour12: true }),
+    });
+
+    setFoto(user.avatar || null);
+  }, []);
+
+  /* ================== ACTIVIDADES ================== */
   const cargarActividades = async () => {
     try {
       const res = await listarActividadesRecientes(10);
-
-      const formateadas = (res.objetoRespuesta || []).map((a: any) => ({
-        fecha: a.fecha,
-        actividad: a.accion,
-        admin: a.adminNombre,
-      }));
-
-      setActividades(formateadas);
-    } catch (error) {
-      console.error("Error cargando actividades", error);
+      setActividades(res.objetoRespuesta || []);
+    } catch {
       setActividades([]);
     }
   };
@@ -46,51 +59,11 @@ export default function PerfilAdmin() {
     cargarActividades();
   }, []);
 
-  useEffect(() => {
-    const data = localStorage.getItem("admin");
-    if (data) {
-      const user = JSON.parse(data);
-
-      setUserId(user.idUsuario);
-      setAdmin({
-        nombre: user.nombre,
-        apellido: user.apellido,
-        correo: user.user,
-        rol: user.rol,
-        ultimoAcceso: new Date().toLocaleString("es-PE", { hour12: true }),
-      });
-
-      if (user.avatar) setFoto(user.avatar);
-    }
-  }, []);
-
-  const handleFoto = async (e: any) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setFoto(URL.createObjectURL(file));
-
-    const user = JSON.parse(localStorage.getItem("usuario")!);
-
-    try {
-      const resp = await subirAvatar(user.idUsuario, file);
-
-      user.avatar = resp.objetoRespuesta.avatar;
-      localStorage.setItem("usuario", JSON.stringify(user));
-      window.dispatchEvent(new Event("usuarioActualizado"));
-
-      showToast("Foto de perfil actualizada.", "success");
-
-      cargarActividades();
-    } catch {
-      showToast("Error al subir foto.", "info");
-    }
-  };
-
+  /* ================== TOAST ================== */
   const [toast, setToast] = useState({
     visible: false,
     message: "",
-    type: "success",
+    type: "success" as "success" | "info",
   });
 
   const showToast = (message: string, type: "success" | "info" = "success") => {
@@ -98,25 +71,66 @@ export default function PerfilAdmin() {
     setTimeout(() => setToast((t) => ({ ...t, visible: false })), 3000);
   };
 
+  /* ================== FOTO ================== */
+  const handleFoto = async (e: any) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId) return;
+
+    const preview = URL.createObjectURL(file);
+    setFoto(preview);
+
+    try {
+      const resp = await subirAvatar(userId, file);
+
+      const adminLS = JSON.parse(localStorage.getItem("admin")!);
+      const updatedAdmin = {
+        ...adminLS,
+        avatar: resp.objetoRespuesta.avatar,
+      };
+
+      localStorage.setItem("admin", JSON.stringify(updatedAdmin));
+      setFoto(updatedAdmin.avatar);
+
+      window.dispatchEvent(new Event("usuarioActualizado"));
+      showToast("Foto de perfil actualizada");
+      cargarActividades();
+    } catch {
+      showToast("Error al subir foto", "info");
+    }
+  };
+
+  /* ================== GUARDAR DATOS ================== */
   const guardarCambios = async () => {
     if (!userId) return;
 
-    const response = await actualizarDatosUsuario(
+    const resp = await actualizarDatosUsuario(
       userId,
       admin.nombre,
       admin.apellido
     );
 
-    if (response.estado) {
-      localStorage.setItem("usuario", JSON.stringify(response.objetoRespuesta));
-      window.dispatchEvent(new Event("usuarioActualizado"));
-
-      showToast("Datos actualizados correctamente", "success");
-
-      cargarActividades();
-    } else {
-      showToast(response.mensaje, "info");
+    if (!resp.estado) {
+      showToast(resp.mensaje, "info");
+      return;
     }
+
+    const updatedAdmin = {
+      ...JSON.parse(localStorage.getItem("admin")!),
+      nombre: resp.objetoRespuesta.nombre,
+      apellido: resp.objetoRespuesta.apellido,
+    };
+
+    localStorage.setItem("admin", JSON.stringify(updatedAdmin));
+
+    setAdmin((prev) => ({
+      ...prev,
+      nombre: updatedAdmin.nombre,
+      apellido: updatedAdmin.apellido,
+    }));
+
+    window.dispatchEvent(new Event("usuarioActualizado"));
+    showToast("Datos actualizados correctamente");
+    cargarActividades();
   };
 
   return (
